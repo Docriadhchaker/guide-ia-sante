@@ -1,8 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {renderMarkdown,validateMarkdown,safeLink,headingsOf,searchDocuments} from '../src/content.mjs';
+import {renderMarkdown,validateMarkdown,safeLink,headingsOf,searchDocuments,referencesOf,resolveSection} from '../src/content.mjs';
 import {validateConfig} from '../scripts/config.mjs';
 const doc={id:'ethique',source_path:'CHAPTERS/04_ethique_deontologie.md',title:'Éthique',markdown:''};
+
+test('Source Markdown anchors resolve to reader anchors without losing accents or section numbers',()=>{
+ const target={...doc,markdown:'# Éthique\n## 4.8. L’explicabilité : pourquoi ?\n## Même titre\n## Même titre'};
+ const anchor='48-lexplicabilité--pourquoi-';
+ assert.equal(resolveSection(target,anchor),'4-8-l-explicabilite-pourquoi');
+ assert.equal(safeLink('04_ethique_deontologie.md#'+anchor,doc,[target]),'#/lire/ethique/4-8-l-explicabilite-pourquoi');
+ assert.equal(resolveSection(target,'même-titre-1'),'meme-titre-2');
+});
+
+test('References are extracted from inline source links, deduplicated and kept safe',()=>{
+ const refs=referencesOf({...doc,markdown:'[Étude](https://doi.org/10.test/1) et [Même étude](https://doi.org/10.test/1). [Interne](autre.md) [Secret](https://user:pass@example.org/)'});
+ assert.deepEqual(refs,[{href:'https://doi.org/10.test/1',label:'Étude'}]);
+});
 test('Markdown: HTML, handlers and dangerous URLs cannot execute',()=>{
  const {html}=renderMarkdown({...doc,markdown:'# Essai\n<script>alert(1)</script>\n\n[piège](javascript:alert)\n\n<img src=x onerror=alert(1)>\n\n![image](https://tracker.test/pixel.png)'});
  assert.ok(!html.includes('<script>'));assert.ok(!html.includes('<img '));assert.ok(!html.includes('href="javascript:'));assert.ok(html.includes('&lt;script&gt;'));assert.ok(html.includes('Illustration'));

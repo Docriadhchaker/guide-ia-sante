@@ -17,14 +17,46 @@ export function validateMarkdown(markdown, name='fichier.md') {
 }
 
 export function headingsOf(markdown) {
-  const headings = [], used = new Set();
+  const headings = [], used = new Set(), sourceUsed = new Map();
   marked.walkTokens(marked.lexer(markdown), token => {
     if (token.type !== 'heading') return;
     const base = slug(token.text); let id = base, n = 2;
     while (used.has(id)) id = base + '-' + n++;
-    used.add(id); headings.push({id, title: plain(token.text), level:token.depth});
+    const sourceBase=token.text.toLowerCase().replace(/[^\p{L}\p{N}_ -]/gu,'').replace(/ /g,'-');
+    const count=sourceUsed.get(sourceBase)||0;sourceUsed.set(sourceBase,count+1);
+    used.add(id); headings.push({id, sourceId:sourceBase+(count?'-'+count:''), title: plain(token.text), level:token.depth});
   });
   return headings;
+}
+
+export function resolveSection(document, fragment) {
+  const headings=headingsOf(document.markdown||'');
+  return headings.find(h=>h.id===fragment)?.id || headings.find(h=>h.sourceId===fragment)?.id || fragment;
+}
+
+// The protected reader plan is the source of the part titles and membership.
+export function partsOf(catalog) {
+  const plan=catalog.find(d=>d.id==='parcours');
+  if(!plan)return [];
+  const starts=[...(plan.markdown||'').matchAll(/^## (Partie [IV]+ — .+)$/gm)];
+  const parts=starts.map((match,i)=>{
+    const block=plan.markdown.slice(match.index+match[0].length,starts[i+1]?.index);
+    const paths=[...block.matchAll(/\]\(\.\.\/CHAPTERS\/([^/#)]+\.md)\)/g)].map(m=>'CHAPTERS/'+m[1]);
+    return {title:match[1],section:resolveSection(plan,match[1].toLowerCase().replace(/[^\p{L}\p{N}_ -]/gu,'').replace(/ /g,'-')),
+      chapters:paths.map(p=>catalog.find(d=>d.kind==='chapter'&&d.source_path===p)).filter(Boolean)};
+  });
+  const ids=parts.flatMap(p=>p.chapters.map(d=>d.id)), expected=catalog.filter(d=>d.kind==='chapter').map(d=>d.id);
+  return parts.length===4&&parts.every(p=>p.chapters.length)&&JSON.stringify(ids)===JSON.stringify(expected)?parts:[];
+}
+
+export function referencesOf(document) {
+  const refs=new Map();
+  marked.walkTokens(marked.lexer(document.markdown||''),token=>{
+    if(token.type!=='link'||!/^https?:\/\//i.test(token.href))return;
+    const href=safeLink(token.href,document,[]);
+    if(href&&!refs.has(href))refs.set(href,{href,label:plain(token.text)||href});
+  });
+  return [...refs.values()];
 }
 
 function relativePath(source, href) {
@@ -39,14 +71,14 @@ export function safeLink(href, document, catalog) {
   if (/^https?:\/\//i.test(href)) {
     try { const u = new URL(href); return u.username || u.password ? null : u.href; } catch { return null; }
   }
-  if (href.startsWith('#')) return route(document.id, href.slice(1));
+  if (href.startsWith('#')) {let fragment;try{fragment=decodeURIComponent(href.slice(1));}catch{return null;}return route(document.id, resolveSection(document,fragment));}
   if (/^[a-z][a-z\d+.-]*:/i.test(href) || href.startsWith('//') || href.includes('\\')) return null;
   let decoded; try { decoded = decodeURIComponent(href); } catch { return null; }
   const [file, fragment=''] = decoded.split('#');
   const dest = relativePath(document.source_path || '', file);
   if (dest === 'front_matter/table_des_matieres.md') return '#/sommaire';
   const target = catalog.find(d => d.source_path?.toLowerCase() === dest);
-  return target ? route(target.id, fragment) : null;
+  return target ? route(target.id, resolveSection(target,fragment)) : null;
 }
 
 export function renderMarkdown(document, catalog=[]) {

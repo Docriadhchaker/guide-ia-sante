@@ -5,11 +5,11 @@ import vm from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
-import {renderMarkdown} from '../src/content.mjs';
+import {renderMarkdown,partsOf} from '../src/content.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const bundlePath=path.join(root,'private','guide-import.json');
 test('Private import contains 12 complete chapters and matches source hashes',{skip:!fs.existsSync(bundlePath)},()=>{
- const bundle=JSON.parse(fs.readFileSync(bundlePath));assert.equal(bundle.documents.filter(d=>d.kind==='chapter').length,12);assert.equal(bundle.documents.length,14);
+ const bundle=JSON.parse(fs.readFileSync(bundlePath));assert.equal(bundle.documents.filter(d=>d.kind==='chapter').length,12);assert.equal(bundle.documents.length,16);
  for(const d of bundle.documents){assert.equal(crypto.createHash('sha256').update(d.markdown).digest('hex'),d.source_sha256);const bytes=fs.readFileSync(path.join(root,'..',d.source_path));assert.equal(d.markdown,bytes.toString('utf8'));const r=renderMarkdown(d,bundle.documents);assert.ok(r.html.length>500);assert.ok(r.headings.length>0);}
 });
 test('Standalone preview is valid JavaScript and has a matching CSP hash',{skip:!fs.existsSync(path.join(root,'preview','apercu-autonome.html'))},()=>{
@@ -21,7 +21,15 @@ test('All chapter and citation links resolve inside the complete private book',{
  for(const page of pages)for(const m of page.html.matchAll(/href="#\/lire\/([^/\"]+)(?:\/([^\"]+))?"/g)){
   count++;const target=pages.find(p=>p.id===decodeURIComponent(m[1]));assert.ok(target,'Document absent: '+m[1]);if(m[2])assert.ok(target.html.includes('id="'+decodeURIComponent(m[2])+'"'),'Ancre absente: '+m[0]);
  }
- assert.ok(count>500);
+ assert.ok(count>=pages.reduce((n,p)=>n+p.headings.length,0),'Every rendered heading has a working permalink');
+ for(const page of pages)assert.deepEqual(page.warnings,[],page.id+': incomplete navigation');
+});
+
+test('Protected reader plan covers each chapter once in four parts',{skip:!fs.existsSync(bundlePath)},()=>{
+ const bundle=JSON.parse(fs.readFileSync(bundlePath)),parts=partsOf(bundle.documents);
+ assert.deepEqual(parts.map(p=>p.chapters.length),[3,3,4,2]);
+ assert.deepEqual(parts.flatMap(p=>p.chapters.map(d=>d.id)),bundle.documents.filter(d=>d.kind==='chapter').map(d=>d.id));
+ assert.deepEqual(partsOf(bundle.documents.filter(d=>d.id!=='parcours')),[]);
 });
 test('Public export excludes manuscript, local settings and database content',{skip:!fs.existsSync(path.join(root,'dist'))},()=>{
  const files=fs.readdirSync(path.join(root,'dist'),{recursive:true}).filter(f=>fs.statSync(path.join(root,'dist',f)).isFile());
