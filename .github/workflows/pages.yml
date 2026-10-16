@@ -9,6 +9,35 @@ concurrency:
   group: pages
   cancel-in-progress: false
 jobs:
+  database-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: local-ci-only
+          POSTGRES_DB: guide_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: local-ci-only
+      PGDATABASE: guide_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test database permissions and pending accounts
+        run: |
+          psql -v ON_ERROR_STOP=1 -f supabase/tests/ci-auth-fixture.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/202610160001_guide.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/202610160002_pending_reviewers.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/tests/access.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/tests/pending-reviewers.sql
   build:
     runs-on: ubuntu-latest
     steps:
@@ -26,7 +55,7 @@ jobs:
         with:
           path: dist
   deploy:
-    needs: build
+    needs: [build, database-tests]
     runs-on: ubuntu-latest
     permissions:
       pages: write

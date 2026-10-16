@@ -6,7 +6,7 @@ export class SupabaseRepository {
     const text=await response.text(); let data; try{data=text?JSON.parse(text):null;}catch{throw Error('Réponse du serveur illisible.');}
     if(!response.ok){
       if(response.status===401&&auth&&retry){await this.refresh();return this.request(path,{method,body,auth,retry:false});}
-      throw Error(data?.msg||data?.message||data?.error_description||'Le serveur a refusé cette opération.');
+      throw Object.assign(Error(data?.msg||data?.message||data?.error_description||'Le serveur a refusé cette opération.'),{code:data?.code});
     }
     return data;
   }
@@ -33,6 +33,7 @@ export class SupabaseRepository {
   async release(id,version,expectedVersion){return this.request('/rest/v1/rpc/guide_set_release',{method:'POST',body:{p_id:id,p_version:version,p_expected_version:expectedVersion}});}
   async history(id){const all=[];for(let offset=0;;offset+=500){const page=await this.request('/rest/v1/guide_versions?select=*&document_id=eq.'+encodeURIComponent(id)+'&order=version_number.desc&limit=500&offset='+offset);all.push(...page);if(page.length<500)return all;}}
   async members(){return this.request('/rest/v1/rpc/guide_list_members',{method:'POST',body:{}});}
+  async pending(){return this.request('/rest/v1/rpc/guide_list_pending_reviewers',{method:'POST',body:{}});}
   async grant(email){return this.request('/rest/v1/rpc/guide_grant_reviewer',{method:'POST',body:{p_email:email}});}
   async revoke(id){return this.request('/rest/v1/rpc/guide_revoke_reviewer',{method:'POST',body:{p_user:id}});}
   async exportAll(){const docs=await this.load();const versions=await Promise.all(docs.map(d=>this.history(d.id)));return {format:'guide-backup-v1',exported_at:new Date().toISOString(),documents:docs,versions:versions.flat()};}
@@ -47,6 +48,7 @@ export class PreviewRepository {
   async history(id){return this.versions.filter(v=>v.document_id===id).slice().reverse();}
   async exportAll(){return {format:'guide-backup-v1',documents:await this.load(),versions:this.versions};}
   async members(){return [];}
+  async pending(){return [];}
   async grant(){throw Error('Les comptes seront gérés après connexion à Supabase.');}
   async revoke(){throw Error('Les comptes seront gérés après connexion à Supabase.');}
   async logout(){}
