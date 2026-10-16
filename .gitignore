@@ -1,0 +1,9 @@
+private/
+preview/
+dist/
+reports/
+config.local.json
+.env
+.env.*
+node_modules/
+*.log
