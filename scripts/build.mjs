@@ -33,9 +33,10 @@ if(preview){
  const content=strip(fs.readFileSync(path.join(root,'src/content.mjs'),'utf8'))+'\nconst esc=escapeHTML;\n';
  const api=strip(fs.readFileSync(path.join(root,'src/api.mjs'),'utf8'));
  const pending=strip(fs.readFileSync(path.join(root,'src/pending.mjs'),'utf8'));
+ const comments=strip(fs.readFileSync(path.join(root,'src/comments.mjs'),'utf8'));
  const app=strip(fs.readFileSync(path.join(root,'src/app.mjs'),'utf8'));
  const jsonSafe=x=>JSON.stringify(x).replace(/</g,'\\u003c');
- const js=`(()=>{window.__GUIDE_CONFIG__=${jsonSafe(config)};window.__GUIDE_BOOK__=${jsonSafe(bundle)};${vendor}${content}\n${api}\n${pending}\n${app}\n})();`.replace(/<\/script/gi,'<\\/script').replace(/\r\n/g,'\n');
+ const js=`(()=>{window.__GUIDE_CONFIG__=${jsonSafe(config)};window.__GUIDE_BOOK__=${jsonSafe(bundle)};${vendor}${content}\n${api}\n${pending}\n${comments}\n${app}\n})();`.replace(/<\/script/gi,'<\\/script').replace(/\r\n/g,'\n');
  const hash=crypto.createHash('sha256').update(js).digest('base64');
  let html=fs.readFileSync(path.join(root,'index.html'),'utf8').replace(/<meta http-equiv="Content-Security-Policy"[^>]+>/,`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-${hash}'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">`).replace(/<link rel="icon"[^>]+>/,'').replace('<link rel="stylesheet" href="./src/style.css">','<style>'+fs.readFileSync(path.join(root,'src/style.css'),'utf8')+'</style>').replace('<script type="module" src="./src/app.mjs"></script>','');
  html=html.replace('</body>',()=>`<script>${js}</script></body>`);
