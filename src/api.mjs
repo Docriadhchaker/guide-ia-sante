@@ -27,7 +27,11 @@ export class SupabaseRepository {
     if(!documents.length)return [];
     const ids=documents.map(d=>this.role==='admin'?d.current_version:d.published_version).filter(Boolean);
     const versions=ids.length?await this.request('/rest/v1/guide_versions?select=*&id=in.('+ids.join(',')+')'):[];
-    return documents.map(d=>({...d,...(versions.find(v=>v.id===(this.role==='admin'?d.current_version:d.published_version))||{}),id:d.id}));
+    // The home page dates the released text, even when an admin has newer drafts.
+    const missing=[...new Set(documents.map(d=>d.published_version).filter(id=>id&&!versions.some(v=>v.id===id)))];
+    const released=missing.length?await this.request('/rest/v1/guide_versions?select=id,created_at&id=in.('+missing.join(',')+')'):[];
+    const dates=new Map([...versions,...released].map(v=>[v.id,v.created_at]));
+    return documents.map(d=>({...d,...(versions.find(v=>v.id===(this.role==='admin'?d.current_version:d.published_version))||{}),id:d.id,published_version_created_at:dates.get(d.published_version)||null}));
   }
   async save(document,expectedVersion){return this.request('/rest/v1/rpc/guide_save_draft',{method:'POST',body:{p_id:document.id,p_kind:document.kind,p_number:document.number||'',p_source_path:document.source_path,p_sort_order:document.sort_order,p_title:document.title,p_markdown:document.markdown,p_expected_version:expectedVersion||null}});}
   async release(id,version,expectedVersion){return this.request('/rest/v1/rpc/guide_set_release',{method:'POST',body:{p_id:id,p_version:version,p_expected_version:expectedVersion}});}
@@ -47,7 +51,7 @@ export class SupabaseRepository {
 // Only included as an explicit local preview. Production never loads a manuscript bundle.
 export class PreviewRepository {
   constructor(bundle){this.role='admin';this.preview=true;this.docs=[];this.versions=[];for(const doc of bundle.documents){const v={id:crypto.randomUUID(),document_id:doc.id,title:doc.title,markdown:doc.markdown,version_number:1,created_at:new Date().toISOString()};this.versions.push(v);this.docs.push({...doc,current_version:v.id,published_version:v.id});}}
-  async load(){return this.docs.map(d=>({...d,...this.versions.find(v=>v.id===d.current_version),id:d.id})).sort((a,b)=>a.sort_order-b.sort_order);}
+  async load(){return this.docs.map(d=>({...d,...this.versions.find(v=>v.id===(this.role==='admin'?d.current_version:d.published_version)),id:d.id,published_version_created_at:this.versions.find(v=>v.id===d.published_version)?.created_at||null})).sort((a,b)=>a.sort_order-b.sort_order);}
   async save(doc,expected){const old=this.docs.find(d=>d.id===doc.id);if((old?.current_version||null)!==(expected||null))throw Error('VERSION_CONFLICT: rechargez le chapitre.');const v={id:crypto.randomUUID(),document_id:doc.id,title:doc.title,markdown:doc.markdown,version_number:this.versions.filter(v=>v.document_id===doc.id).length+1,created_at:new Date().toISOString()};this.versions.push(v);if(old)Object.assign(old,{...doc,current_version:v.id,published_version:old.published_version});else this.docs.push({...doc,current_version:v.id,published_version:null});return v.id;}
   async release(id,version,expected){const d=this.docs.find(x=>x.id===id);if(d.current_version!==expected)throw Error('VERSION_CONFLICT');if(version&&!this.versions.some(v=>v.id===version&&v.document_id===id))throw Error('Version étrangère');d.published_version=version;}
   async history(id){return this.versions.filter(v=>v.document_id===id).slice().reverse();}

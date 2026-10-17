@@ -8,6 +8,12 @@ export const route = (id, section='') => '#/lire/' + encodeURIComponent(id) + (s
 export const titleOf = (markdown, fallback='Sans titre') => plain(markdown.match(/^#\s+(.+)$/m)?.[1] || fallback);
 export const MAX_BYTES = 2 * 1024 * 1024;
 
+// A draft save or interface deployment must not change the reader's edition date.
+export function latestReleasedRevision(documents){
+ const dates=documents.filter(d=>d.published_version&&d.published_version_created_at).map(d=>Date.parse(d.published_version_created_at)).filter(Number.isFinite);
+ return dates.length?new Date(Math.max(...dates)).toISOString():null;
+}
+
 export function validateMarkdown(markdown, name='fichier.md') {
   if (!/\.(md|markdown)$/i.test(name)) throw Error('Choisis un fichier Markdown (.md ou .markdown).');
   if (typeof markdown !== 'string' || !markdown.trim()) throw Error('Ce fichier est vide.');
