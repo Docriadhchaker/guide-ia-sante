@@ -38,6 +38,9 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/202610160002_pending_reviewers.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/202610170001_comments.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/202610170001_comments.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/202610180001_access_email.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/202610180001_access_email.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/tests/access-email.sql
           psql -v ON_ERROR_STOP=1 -f supabase/tests/access.sql
           psql -v ON_ERROR_STOP=1 -f supabase/tests/pending-reviewers.sql
           psql -v ON_ERROR_STOP=1 -f supabase/tests/comments.sql

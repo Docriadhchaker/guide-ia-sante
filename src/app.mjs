@@ -1,6 +1,7 @@
 import {escapeHTML as esc, plain, slug, route, titleOf, validateMarkdown, renderMarkdown, searchDocuments, partsOf, referencesOf, resolveSection, latestReleasedRevision} from './content.mjs';
 import {SupabaseRepository, PreviewRepository} from './api.mjs';
 import {pendingReviewersPanel, loadPendingReviewers} from './pending.mjs';
+import {accessEmailPanel, accessEmailSummary, loadAccessEmails} from './access-mail.mjs';
 import {ReviewComments} from './comments.mjs';
 import {ReviewInbox} from './inbox.mjs';
 import {initTheme} from './theme.mjs';
@@ -79,13 +80,13 @@ async function adminPage(id,view){
   if(state.repo.role!=='admin'){main.innerHTML='<h1>Accès réservé à l’administrateur</h1>';return;}
   if(id){await editPage(id,view);return;}
   const released=chapters().filter(d=>d.published_version).length;
-  main.innerHTML=`<p class="eyebrow">ESPACE AUTEUR</p><h1>Faire vivre le guide.</h1><p class="lead">Importez vos textes, relisez les modifications, puis choisissez la version accessible aux reviewers.</p><div class="stats"><div><strong>${chapters().length}</strong><span>chapitres</span></div><div><strong>${released}</strong><span>accessibles aux reviewers</span></div><div><strong>${state.documents.filter(d=>d.current_version!==d.published_version).length}</strong><span>documents avec un brouillon</span></div></div>${pendingReviewersPanel()}<section class="import-panel"><div><h2>Importer vos Markdown</h2><p>Un fichier par chapitre. Les fichiers portant le même nom mettent à jour le chapitre correspondant.</p><label class="button" for="markdown-files">Choisir des fichiers .md</label><input class="sr-only" id="markdown-files" type="file" multiple accept=".md,.markdown"><label class="text-button file-label" for="book-package">Importer une édition du guide (.json)</label><input class="sr-only" id="book-package" type="file" accept=".json"></div><div class="import-explanation"><span>01 &nbsp; Importer</span><span>02 &nbsp; Prévisualiser</span><span>03 &nbsp; Enregistrer un brouillon</span><span>04 &nbsp; Donner accès aux reviewers</span></div></section><div id="import-review"></div><div class="section-heading"><h2>Vos documents</h2><button class="button secondary" data-action="backup">Exporter une sauvegarde</button></div><div class="admin-documents">${state.documents.map(d=>`<a href="#/admin/${esc(d.id)}"><span class="doc-number">${esc(d.number||'•')}</span><div><h3>${esc(chapterTitle(d))}</h3><small>${esc(d.source_path)} · version ${d.version_number}</small></div><span class="pill ${d.current_version!==d.published_version?'draft':''}">${!d.published_version?'Brouillon':d.current_version===d.published_version?'Accessible':'Nouvelle version en brouillon'}</span><span aria-hidden="true">→</span></a>`).join('')}</div><section class="members-panel"><h2>Accès des reviewers</h2><p>Un compte confirmé est nécessaire. L’ajout donne accès aux versions diffusées du guide.</p><form id="member-form" class="inline-form"><label><span class="sr-only">Email du reviewer</span><input type="email" name="email" placeholder="Email du reviewer" required></label><button class="button secondary">Accorder l’accès</button></form><button class="text-button" data-action="members">Afficher les accès actuels</button><div id="member-list"></div></section>`;
+  main.innerHTML=`<p class="eyebrow">ESPACE AUTEUR</p><h1>Faire vivre le guide.</h1><p class="lead">Importez vos textes, relisez les modifications, puis choisissez la version accessible aux reviewers.</p><div class="stats"><div><strong>${chapters().length}</strong><span>chapitres</span></div><div><strong>${released}</strong><span>accessibles aux reviewers</span></div><div><strong>${state.documents.filter(d=>d.current_version!==d.published_version).length}</strong><span>documents avec un brouillon</span></div></div>${pendingReviewersPanel()}${accessEmailPanel()}<section class="import-panel"><div><h2>Importer vos Markdown</h2><p>Un fichier par chapitre. Les fichiers portant le même nom mettent à jour le chapitre correspondant.</p><label class="button" for="markdown-files">Choisir des fichiers .md</label><input class="sr-only" id="markdown-files" type="file" multiple accept=".md,.markdown"><label class="text-button file-label" for="book-package">Importer une édition du guide (.json)</label><input class="sr-only" id="book-package" type="file" accept=".json"></div><div class="import-explanation"><span>01 &nbsp; Importer</span><span>02 &nbsp; Prévisualiser</span><span>03 &nbsp; Enregistrer un brouillon</span><span>04 &nbsp; Donner accès aux reviewers</span></div></section><div id="import-review"></div><div class="section-heading"><h2>Vos documents</h2><button class="button secondary" data-action="backup">Exporter une sauvegarde</button></div><div class="admin-documents">${state.documents.map(d=>`<a href="#/admin/${esc(d.id)}"><span class="doc-number">${esc(d.number||'•')}</span><div><h3>${esc(chapterTitle(d))}</h3><small>${esc(d.source_path)} · version ${d.version_number}</small></div><span class="pill ${d.current_version!==d.published_version?'draft':''}">${!d.published_version?'Brouillon':d.current_version===d.published_version?'Accessible':'Nouvelle version en brouillon'}</span><span aria-hidden="true">→</span></a>`).join('')}</div><section class="members-panel"><h2>Accès des reviewers</h2><p>Un compte confirmé est nécessaire. L’ajout donne accès aux versions diffusées du guide.</p><form id="member-form" class="inline-form"><label><span class="sr-only">Email du reviewer</span><input type="email" name="email" placeholder="Email du reviewer" required></label><button class="button secondary">Accorder l’accès</button></form><button class="text-button" data-action="members">Afficher les accès actuels</button><div id="member-list"></div></section>`;
   main.querySelector('.stats').insertAdjacentHTML('afterend','<section class="review-admin-entry"><div><h2>Les remarques de relecture</h2><p>Répondez aux relecteurs, suivez les corrections et exportez les échanges.</p></div><a class="button" href="#/commentaires">Suivre les remarques →</a></section>');
   document.querySelector('#markdown-files').onchange=e=>action(()=>queueFiles([...e.target.files]));
   document.querySelector('#book-package').onchange=e=>action(async()=>{const file=e.target.files[0];if(!file)return;if(file.size>25*1024*1024)throw Error('Dossier trop volumineux.');const bundle=JSON.parse(await file.text());if(bundle.format!=='guide-import-v1'||!Array.isArray(bundle.documents))throw Error('Ce fichier n’est pas un dossier d’import du guide.');const seen=new Set();state.queue=bundle.documents.map(d=>{validateMarkdown(d.markdown,d.source_path);if(!/^[a-z0-9][a-z0-9-]{0,79}$/.test(d.id)||!['chapter','notice','index'].includes(d.kind)||seen.has(d.id))throw Error('Identité de document invalide ou en double.');seen.add(d.id);const old=state.documents.find(x=>x.id===d.id);return {...d,title:titleOf(d.markdown,d.title),expected:old?.current_version||null};});state.queueIndex=0;renderQueue();});
-  document.querySelector('#member-form').onsubmit=e=>{e.preventDefault();action(async()=>{await state.repo.grant(new FormData(e.target).get('email'));e.target.reset();notify('Accès reviewer accordé.');await Promise.all([showMembers(),showPendingReviewers()]);});};
+  document.querySelector('#member-form').onsubmit=e=>{e.preventDefault();action(async()=>{await grantReviewerWithEmail(new FormData(e.target).get('email'));e.target.reset();});};
   if(state.queue.length)renderQueue();
-  await showPendingReviewers();
+  await Promise.all([showPendingReviewers(),showAccessEmails()]);
 }
 async function queueFiles(files){
   const result=[],ids=new Set();
@@ -114,6 +115,18 @@ async function editPage(id,view){
   for(const field of ['edit-title','edit-markdown'])document.querySelector('#'+field).addEventListener('input',()=>{state.dirty=true;document.querySelector('#edit-status').textContent='Modifications non enregistrées.';});
 }
 function edited(){const doc={...state.edit,title:document.querySelector('#edit-title').value.trim(),markdown:document.querySelector('#edit-markdown').value};validateMarkdown(doc.markdown,doc.source_path);if(!doc.title)throw Error('Le titre est requis.');return doc;}
+async function showAccessEmails(){await loadAccessEmails(document.querySelector('#access-email-list'),state.repo);}
+function reportAccessEmail(result){
+ if(state.repo?.role!=='admin')return;
+ const message=accessEmailSummary(result),root=document.querySelector('#access-email-feedback');
+ if(root)root.textContent=message;
+ notify(message,!['sent','sending'].includes(result.notification));
+}
+async function grantReviewerWithEmail(email){
+ const result=await state.repo.grant(email);
+ await Promise.all([showMembers(),showPendingReviewers(),showAccessEmails()]);
+ reportAccessEmail(result);
+}
 async function showPendingReviewers(){await loadPendingReviewers(document.querySelector('#pending-reviewers'),state.repo);}
 async function showMembers(){const members=await state.repo.members();const root=document.querySelector('#member-list');if(root)root.innerHTML=members.length?members.map(m=>`<div class="member-row"><span>${esc(m.email)} <small>${esc(m.role)}</small></span>${m.role==='reviewer'?`<button class="text-button danger" data-revoke="${m.user_id}">Retirer l’accès</button>`:''}</div>`).join(''):'<p class="muted">Aucun compte affiché dans cet aperçu local.</p>';}
 
@@ -133,10 +146,11 @@ async function render(){
 }
 
 document.addEventListener('click',e=>{
-  const button=e.target.closest('[data-action],[data-revoke],[data-grant]');if(!button)return;
+  const button=e.target.closest('[data-action],[data-revoke],[data-grant],[data-retry-access-email]');if(!button)return;
   action(async()=>{
-    if(button.dataset.grant){await state.repo.grant(button.dataset.grant);await Promise.all([showMembers(),showPendingReviewers()]);notify('Accès reviewer accordé.');return;}
-    if(button.dataset.revoke){await state.repo.revoke(button.dataset.revoke);await Promise.all([showMembers(),showPendingReviewers()]);notify('Accès retiré.');return;}
+    if(button.dataset.grant){await grantReviewerWithEmail(button.dataset.grant);return;}
+    if(button.dataset.retryAccessEmail){const result=await state.repo.retryAccessEmail(button.dataset.retryAccessEmail);await showAccessEmails();reportAccessEmail(result);return;}
+    if(button.dataset.revoke){await state.repo.revoke(button.dataset.revoke);await Promise.all([showMembers(),showPendingReviewers(),showAccessEmails()]);notify('Accès retiré.');return;}
     switch(button.dataset.action){
       case 'logout': state.dirty=false;state.documents=[];state.queue=[];state.edit=null;state.history=[];try{await state.repo.logout();}finally{updateChrome();go('/connexion');await render();}break;
       case 'print': window.print();break;
@@ -150,6 +164,7 @@ document.addEventListener('click',e=>{
       case 'backup':download('guide-sauvegarde-'+new Date().toISOString().slice(0,10)+'.json',JSON.stringify(await state.repo.exportAll(),null,2),'application/json');notify('Sauvegarde téléchargée : elle contient les textes privés et les versions.');break;
       case 'members':await showMembers();break;
       case 'pending':await showPendingReviewers();break;
+      case 'access-emails':await showAccessEmails();break;
       case 'view-history':{const v=state.history.find(v=>v.id===document.querySelector('#history-select').value);const panel=document.querySelector('#editor-preview');panel.hidden=false;panel.innerHTML=`<h2>Version ${v.version_number}</h2><button class="button secondary" data-action="restore-history">Utiliser comme nouveau brouillon</button>`+renderMarkdown({...state.edit,...v,id:state.edit.id},state.documents).html;panel.scrollIntoView();state.restore=v;break;}
       case 'restore-history':document.querySelector('#edit-markdown').value=state.restore.markdown;document.querySelector('#edit-title').value=state.restore.title;state.dirty=true;document.querySelector('#edit-status').textContent='Ancienne version chargée. Enregistrez-la pour créer un nouveau brouillon.';document.querySelector('#edit-title').focus();break;
     }

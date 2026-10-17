@@ -1,12 +1,12 @@
 export class SupabaseRepository {
   constructor(config) {this.url=config.supabaseUrl.replace(/\/$/,'');this.key=config.supabasePublishableKey;this.session=null;this.role=null;this.refreshing=null;}
-  async request(path, {method='GET', body, auth=true, retry=true}={}) {
+  async request(path, {method='GET', body, auth=true, retry=true,timeoutMs=20000}={}) {
     if(auth) await this.ensureSession();
-    const response=await fetch(this.url+path,{method,cache:'no-store',signal:AbortSignal.timeout(20000),headers:{apikey:this.key,'Content-Type':'application/json',...(auth?{Authorization:'Bearer '+this.session.access_token}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});
+    const response=await fetch(this.url+path,{method,cache:'no-store',signal:AbortSignal.timeout(timeoutMs),headers:{apikey:this.key,'Content-Type':'application/json',...(auth?{Authorization:'Bearer '+this.session.access_token}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});
     const text=await response.text(); let data; try{data=text?JSON.parse(text):null;}catch{throw Error('Réponse du serveur illisible.');}
     if(!response.ok){
-      if(response.status===401&&auth&&retry){await this.refresh();return this.request(path,{method,body,auth,retry:false});}
-      throw Object.assign(Error(data?.msg||data?.message||data?.error_description||'Le serveur a refusé cette opération.'),{code:data?.code});
+      if(response.status===401&&auth&&retry){await this.refresh();return this.request(path,{method,body,auth,retry:false,timeoutMs});}
+      throw Object.assign(Error(data?.msg||data?.message||data?.error_description||'Le serveur a refusé cette opération.'),{code:data?.code,status:response.status});
     }
     return data;
   }
@@ -38,7 +38,16 @@ export class SupabaseRepository {
   async history(id){const all=[];for(let offset=0;;offset+=500){const page=await this.request('/rest/v1/guide_versions?select=*&document_id=eq.'+encodeURIComponent(id)+'&order=version_number.desc&limit=500&offset='+offset);all.push(...page);if(page.length<500)return all;}}
   async members(){return this.request('/rest/v1/rpc/guide_list_members',{method:'POST',body:{}});}
   async pending(){return this.request('/rest/v1/rpc/guide_list_pending_reviewers',{method:'POST',body:{}});}
-  async grant(email){return this.request('/rest/v1/rpc/guide_grant_reviewer',{method:'POST',body:{p_email:email}});}
+  async grant(email){
+    const user_id=await this.request('/rest/v1/rpc/guide_grant_reviewer',{method:'POST',body:{p_email:email}});
+    try{return {...await this.retryAccessEmail(user_id),user_id,access_granted:true};}
+    catch(error){
+      // The grant already succeeded. An unavailable mail service must not hide it.
+      return {user_id,access_granted:true,notification:error.status===404&&error.code==='NOT_FOUND'?'not_configured':'unknown'};
+    }
+  }
+  async retryAccessEmail(user_id){return this.request('/functions/v1/guide-reviewer-access',{method:'POST',body:{user_id},timeoutMs:45000});}
+  async accessEmails(){return this.request('/rest/v1/rpc/guide_list_access_emails',{method:'POST',body:{}});}
   async revoke(id){return this.request('/rest/v1/rpc/guide_revoke_reviewer',{method:'POST',body:{p_user:id}});}
   async comments(documentId=null){const all=[];for(let offset=0;;offset+=100){const page=await this.request('/rest/v1/rpc/guide_list_comments',{method:'POST',body:{p_document:documentId,p_offset:offset}});all.push(...page);if(page.length<100)return all;}}
   async createComment(comment){return this.request('/rest/v1/rpc/guide_create_comment',{method:'POST',body:{p_id:comment.id,p_document:comment.document_id,p_version:comment.version_id,p_section:comment.section_id,p_section_title:comment.section_title,p_quote:comment.quote,p_start:comment.anchor_start,p_end:comment.anchor_end,p_body:comment.body}});}
@@ -64,6 +73,8 @@ export class PreviewRepository {
   async members(){return [];}
   async pending(){return [];}
   async grant(){throw Error('Les comptes seront gérés après connexion à Supabase.');}
+  async accessEmails(){return [];}
+  async retryAccessEmail(){throw Error('Aucun e-mail envoyé dans cet aperçu local.');}
   async revoke(){throw Error('Les comptes seront gérés après connexion à Supabase.');}
   async logout(){}
 }
