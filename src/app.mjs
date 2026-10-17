@@ -2,11 +2,16 @@ import {escapeHTML as esc, plain, slug, route, titleOf, validateMarkdown, render
 import {SupabaseRepository, PreviewRepository} from './api.mjs';
 import {pendingReviewersPanel, loadPendingReviewers} from './pending.mjs';
 import {ReviewComments} from './comments.mjs';
+import {ReviewInbox} from './inbox.mjs';
+import {initTheme} from './theme.mjs';
 
 const main=document.querySelector('#main'), sidebar=document.querySelector('#sidebar'), outline=document.querySelector('#outline');
 const state={repo:null,documents:[],queue:[],queueIndex:0,edit:null,dirty:false,view:0,busy:false};
-let config;
-const reviews=new ReviewComments({repository:()=>state.repo,download:(...args)=>download(...args),dirty:value=>state.dirty=value,notify});
+let config,preferences;
+try{preferences=window.localStorage;}catch{}
+initTheme({root:document.documentElement,button:document.querySelector('#theme-toggle'),storage:preferences,media:window.matchMedia('(prefers-color-scheme: dark)')});
+const inbox=new ReviewInbox({repository:()=>state.repo,storage:preferences});
+const reviews=new ReviewComments({repository:()=>state.repo,download:(...args)=>download(...args),dirty:value=>state.dirty=value,notify,inbox});
 const chapterTitle=d=>d.title.replace(/^Chapitre\s+\d+\s*[—–:-]\s*/i,'');
 const chapters=()=>state.documents.filter(d=>d.kind==='chapter');
 const currentPath=()=>location.hash.slice(1)||'/';
@@ -20,7 +25,8 @@ function chapterNav(doc){
 }
 function updateChrome(){
   const admin=state.repo?.role==='admin', ready=!!state.repo?.role, parts=partsOf(state.documents);
-  document.querySelector('#account').innerHTML=ready?`${admin?'<a class="admin-link" href="#/admin">Administration</a>':'<span class="role-label">Relecture</span>'}${!state.repo.preview?'<button class="text-button" data-action="logout">Déconnexion</button>':''}`:'<a class="admin-link" href="#/connexion">Connexion</a>';
+  document.querySelector('#account').innerHTML=ready?`<div id="review-inbox"></div>${admin?'<a class="admin-link" href="#/admin">Administration</a>':''}${!state.repo.preview?'<button class="text-button" data-action="logout">Déconnexion</button>':''}`:'<div id="review-inbox"></div><a class="admin-link" href="#/connexion">Connexion</a>';
+  inbox.mount(document.querySelector('#review-inbox'));
   const nav=parts.length?parts.map(part=>`<section class="nav-part"><h3><a href="${route('parcours',part.section)}">${esc(part.title)}</a></h3>${part.chapters.map(chapterNav).join('')}</section>`).join(''):chapters().map(chapterNav).join('');
   sidebar.innerHTML=`<div class="sidebar-head"><span class="eyebrow">VOTRE PARCOURS</span><a href="#/" class="nav-home">Vue d’ensemble</a></div><div class="nav-caption">LES CHAPITRES <span>${chapters().length||'—'}</span></div><nav aria-label="Chapitres">${nav||'<p class="sidebar-help">Connectez-vous pour retrouver le contenu du guide.</p>'}</nav><div class="sidebar-bottom"><a href="#/mode-emploi">Mode d’emploi</a>${state.documents.some(d=>d.id==='abreviations')?'<a href="#/lire/abreviations">Abréviations</a>':''}<a href="#/references">Références</a>${ready?`<a href="#/commentaires">${admin?'Suivi des remarques':'Mes remarques'}</a>`:''}<p>Comprendre les notions.<br>Éclairer les choix publics.</p></div>`;
 }
@@ -111,7 +117,7 @@ async function render(){
   if(!state.repo.role){state.repo.session?pendingPage():loginPage();return;}
   main.className=path.startsWith('/admin')?'admin-main':'';
   const parts=path.split('/').filter(Boolean).map(decodeURIComponent);
-  if(parts[0]==='commentaires'){if(parts[1]==='source')await reviews.source(main,parts[2],state.documents);else reviews.dashboard(main);}
+  if(parts[0]==='commentaires'){if(parts[1]==='source')await reviews.source(main,parts[2],state.documents);else reviews.dashboard(main,parts[1]==='fil'?parts[2]:null);}
   else if(!parts.length)home();else if(parts[0]==='sommaire')contents();else if(parts[0]==='questions')questions();else if(parts[0]==='notions')readDocument('notions');else if(parts[0]==='mode-emploi')readDocument('mode-emploi');else if(parts[0]==='references')references();else if(parts[0]==='recherche')searchPage();else if(parts[0]==='lire')readDocument(parts[1],parts[2]);else if(parts[0]==='admin')await adminPage(parts[1],view);else home();
   if(view!==state.view)return;
   if(!(parts[0]==='lire'&&parts[2])&&!(parts[0]==='commentaires'&&parts[1]==='source')){window.scrollTo(0,0);main.focus({preventScroll:true});}
@@ -142,6 +148,11 @@ document.addEventListener('click',e=>{
   });
 });
 document.querySelector('#mobile-menu').onclick=()=>{const open=document.body.classList.toggle('menu-open');document.querySelector('#mobile-menu').setAttribute('aria-expanded',String(open));};
+document.addEventListener('click',e=>{if(!e.composedPath().some(node=>node.id==='review-inbox'))inbox.close();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')inbox.close(true);});
+window.addEventListener('focus',()=>void inbox.refresh());
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)void inbox.refresh();});
+setInterval(()=>{if(!document.hidden)void inbox.refresh();},60000);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.body.classList.contains('menu-open')){document.body.classList.remove('menu-open');document.querySelector('#mobile-menu').setAttribute('aria-expanded','false');document.querySelector('#mobile-menu').focus();}});
 let lastHash=location.hash;
 window.addEventListener('hashchange',()=>{if(state.dirty&&!window.confirm('Quitter sans enregistrer les modifications ?')){history.replaceState(null,'',lastHash);return;}state.dirty=false;lastHash=location.hash;render().catch(e=>notify(e.message,true));});

@@ -75,7 +75,7 @@ export function highlightReviewQuote(article,thread){
 }
 
 export class ReviewComments {
- constructor({repository,download,dirty,notify}){this.repository=repository;this.download=download;this.dirty=dirty;this.notify=notify;this.epoch=0;}
+ constructor({repository,download,dirty,notify,inbox}){this.repository=repository;this.download=download;this.dirty=dirty;this.notify=notify;this.inbox=inbox;this.epoch=0;}
  clear(){this.epoch++;if(this.selectionHandler)document.removeEventListener('selectionchange',this.selectionHandler);this.selectionHandler=null;this.root=null;this.threads=[];this.filtered=null;this.documentId=null;this.readerDocument=null;this.dirty(false);}
  get repo(){return this.repository();}
  get admin(){return this.repo.role==='admin';}
@@ -117,6 +117,10 @@ export class ReviewComments {
  }
  drawList(root,threads){
   root.innerHTML=threads.length?threads.slice().sort((a,b)=>b.updated_at.localeCompare(a.updated_at)).map(t=>commentCard(t,this.admin)).join(''):'<p class="muted">Aucune remarque pour le moment.</p>';
+  root.querySelectorAll('.review-card').forEach(card=>{const thread=threads.find(t=>t.id===card.dataset.thread),count=this.inbox?.unread(thread).length||0;if(!count)return;
+   const read=document.createElement('button');read.type='button';read.className='review-read text-button';read.textContent=count+' mise(s) à jour non lue(s) · Marquer comme lu';card.querySelector('.review-messages').before(read);
+   read.onclick=()=>{this.inbox.markThread(thread);read.replaceWith(Object.assign(document.createElement('p'),{className:'muted',textContent:'Mises à jour marquées comme lues.'}));};
+  });
   root.querySelectorAll('textarea').forEach(t=>t.oninput=()=>this.updateDirty());
   root.querySelectorAll('.review-reply').forEach(form=>{let attempt=null;form.onsubmit=e=>{e.preventDefault();const body=form.elements.body.value.trim();if(!body)return;if(!attempt||attempt.body!==body)attempt={id:crypto.randomUUID(),body};this.sendForm(form,async active=>{
    await this.repo.replyComment(form.dataset.thread,attempt.id,body);if(!active())return;form.elements.body.value='';this.updateDirty();await this.refreshCard(root,form.dataset.thread);this.notify('Réponse enregistrée.');
@@ -130,19 +134,22 @@ export class ReviewComments {
   const epoch=this.epoch,saved=new Map([...root.querySelectorAll('.review-reply')].map(f=>[f.dataset.thread,f.elements.body.value]));
   const all=await this.repo.comments(this.documentId||null);if(epoch!==this.epoch||!root.isConnected)return;
   this.threads=all;const rows=this.filtered?this.filtered():all.filter(t=>this.readerDocument?t.document_id===this.readerDocument:true);this.drawList(root,rows);
-  const count=document.querySelector('#review-count');if(count)count.textContent=rows.length+' remarque(s) affichée(s). Les exports portent sur toute la liste, y compris les autres filtres.';
+  const count=document.querySelector('#review-count');if(count)count.textContent=this.countLabel(rows.length);
   root.querySelectorAll('.review-reply').forEach(f=>{f.elements.body.value=saved.get(f.dataset.thread)||'';});this.updateDirty();
+  if(this.documentId)void this.inbox?.refresh();else this.inbox?.accept(all);
  }
- dashboard(root){
+ countLabel(count){return count+' remarque(s) affichée(s).'+(this.admin?' Les exports portent sur toute la liste, y compris les autres filtres.':'');}
+ dashboard(root,focusId=null){
   this.root=root;this.readerDocument=null;this.documentId=null;const admin=this.admin;
   root.innerHTML=`<p class="eyebrow">RELECTURE PRIVÉE</p><h1>${admin?'Suivre les remarques.':'Mes remarques.'}</h1><p>Chaque échange est visible par son relecteur et l’auteur du guide. Les remarques restent liées à la version lue.</p><div class="review-filters"><label>Document<select id="review-document"><option value="">Tous les documents</option></select></label>${admin?'<label>Relecteur<select id="review-reviewer"><option value="">Tous les relecteurs</option></select></label>':''}<label>Suivi<select id="review-filter-status"><option value="">Tous les statuts</option>${Object.entries(REVIEW_STATUSES).map(([s,label])=>`<option value="${s}">${label}</option>`).join('')}</select></label></div><div class="button-row"><button class="button secondary" id="review-refresh">Actualiser</button>${admin?'<button class="button secondary" data-review-export="md">Exporter les remarques (.md)</button><button class="button secondary" data-review-export="csv">Tableau (.csv)</button><button class="text-button" data-review-export="json">Archive complète (.json)</button>':''}</div><p class="muted" id="review-count" role="status"></p><div id="review-list"></div>`;
   const list=root.querySelector('#review-list'),epoch=this.epoch;
-  this.filtered=()=>filterComments(this.threads,{document:root.querySelector('#review-document').value,reviewer:root.querySelector('#review-reviewer')?.value||'',status:root.querySelector('#review-filter-status').value});
-  const draw=()=>{const rows=this.filtered();root.querySelector('#review-count').textContent=rows.length+' remarque(s) affichée(s). Les exports portent sur toute la liste, y compris les autres filtres.';this.drawList(list,rows);};
+  if(focusId){root.querySelector('h1').textContent='Votre échange de relecture.';root.querySelector('.review-filters').hidden=true;root.querySelector('h1').insertAdjacentHTML('beforebegin','<a href="#/commentaires">← Toutes les remarques</a>');}
+  this.filtered=()=>focusId?this.threads.filter(t=>t.id===focusId):filterComments(this.threads,{document:root.querySelector('#review-document').value,reviewer:root.querySelector('#review-reviewer')?.value||'',status:root.querySelector('#review-filter-status').value});
+  const draw=()=>{const rows=this.filtered();root.querySelector('#review-count').textContent=this.countLabel(rows.length);this.drawList(list,rows);if(focusId&&!rows.length)list.textContent='Cette remarque est introuvable ou n’est plus accessible à votre compte.';};
   const refresh=async()=>{if([...list.querySelectorAll('textarea')].some(t=>t.value.trim())){this.notify('Envoyez vos réponses en cours avant d’actualiser.');return;}
    list.textContent='Chargement des remarques…';try{const threads=await this.repo.comments();if(epoch!==this.epoch)return;this.threads=threads;
     for(const [selector,key,label] of [['#review-document','document_id','document_title'],['#review-reviewer','reviewer_id','reviewer_email']]){const select=root.querySelector(selector);if(!select)continue;const selected=select.value;select.innerHTML=select.options[0].outerHTML+[...new Map(threads.map(t=>[t[key],t[label]])).entries()].map(([value,text])=>`<option value="${reviewEscape(value)}">${reviewEscape(text)}</option>`).join('');select.value=selected;}
-    draw();
+    this.inbox?.accept(threads);if(focusId){const thread=threads.find(t=>t.id===focusId);if(thread)this.inbox?.markThread(thread);}draw();
    }catch(error){if(epoch===this.epoch)list.textContent=this.unavailable(error);}
   };
   root.querySelector('#review-refresh').onclick=refresh;
