@@ -3,7 +3,7 @@
 const guideLogin='https://guide.riadhchaker.com/#/connexion';
 const emailSender='Guide IA en santé <acces@notifications.riadhchaker.com>';
 const authorReply='bintelcenter@gmail.com';
-const allowedOrigins=new Set(['https://guide.riadhchaker.com','https://docriadhchaker.github.io']);
+const allowedOrigins=new Set(['https://guide.riadhchaker.com']);
 
 export function activationEmail(recipient){
  return {
@@ -17,7 +17,7 @@ export function activationEmail(recipient){
 export function createAccessHandler({env,fetcher=fetch}){
  return async function handler(request){
   const origin=request.headers.get('Origin');
-  const headers={'Content-Type':'application/json','Cache-Control':'no-store','Vary':'Origin',...(allowedOrigins.has(origin)?{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Headers':'authorization, apikey, content-type','Access-Control-Allow-Methods':'POST, OPTIONS'}:{})};
+  const headers={'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'",'Vary':'Origin',...(allowedOrigins.has(origin)?{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Headers':'authorization, apikey, content-type','Access-Control-Allow-Methods':'POST, OPTIONS'}:{})};
   const reply=(data,status=200)=>new Response(JSON.stringify(data),{status,headers});
   if(origin&&!allowedOrigins.has(origin))return reply({message:'Origine non autorisée.'},403);
   if(request.method==='OPTIONS')return new Response(null,{status:204,headers});
@@ -26,12 +26,28 @@ export function createAccessHandler({env,fetcher=fetch}){
   if(!/^Bearer \S+$/i.test(authorization))return reply({message:'Connexion requise.'},401);
   const url=env('SUPABASE_URL')?.replace(/\/$/,''),anon=env('SUPABASE_ANON_KEY'),service=env('SUPABASE_SERVICE_ROLE_KEY');
   if(!url||!anon||!service)return reply({message:'Configuration du serveur incomplète.'},503);
+  if(request.headers.get('content-type')?.split(';')[0].trim().toLowerCase()!=='application/json')return reply({message:'Format JSON requis.'},415);
+  const maxBytes=2000;
+  if(Number(request.headers.get('content-length'))>maxBytes)return reply({message:'Demande trop volumineuse.'},413);
+  const reader=request.body?.getReader();
+  if(!reader)return reply({message:'Demande invalide.'},400);
   let input;
-  try{const raw=await request.text();if(raw.length>2000)throw Error();input=JSON.parse(raw);}catch{return reply({message:'Demande invalide.'},400);}
+  try{
+    const bytes=new Uint8Array(maxBytes);
+    let used=0;
+    while(true){
+      const {done,value}=await reader.read();
+      if(done)break;
+      if(value.length>maxBytes-used){await reader.cancel();return reply({message:'Demande trop volumineuse.'},413);}
+      bytes.set(value,used);used+=value.length;
+    }
+    input=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes.subarray(0,used)));
+  }catch{return reply({message:'Demande invalide.'},400);}
+  finally{reader.releaseLock();}
   if(!input||typeof input!=='object'||Array.isArray(input)||
     typeof input.user_id!=='string'||! /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(input.user_id))return reply({message:'Demande invalide.'},400);
   async function jsonFetch(endpoint,options={}){
-   const response=await fetcher(endpoint,{...options,signal:AbortSignal.timeout(8000)});
+   const response=await fetcher(endpoint,{...options,credentials:'omit',redirect:'error',signal:AbortSignal.timeout(8000)});
    let data;try{data=await response.json();}catch{data=null;}
    if(!response.ok)throw Object.assign(Error('Requête refusée'),{status:response.status,code:data?.code});
    return data;

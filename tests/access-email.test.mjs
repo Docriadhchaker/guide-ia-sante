@@ -21,7 +21,7 @@ function fixture(overrides={}){
   if(url.endsWith('/guide_finish_access_email'))return Response.json(overrides.recorded!==false,{status:overrides.finishStatus||200});
   throw Error('Unexpected endpoint '+url);
  }});
- const run=(body={user_id:uid},headers={Authorization:'Bearer signed-admin',Origin:'https://guide.riadhchaker.com'})=>handler(new Request('https://edge.example/send',{method:'POST',headers,body:JSON.stringify(body)}));
+ const run=(body={user_id:uid},headers={Authorization:'Bearer signed-admin',Origin:'https://guide.riadhchaker.com'})=>handler(new Request('https://edge.example/send',{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)}));
  return {run,calls};
 }
 
@@ -107,4 +107,12 @@ test('Admin mail history escapes recipients/errors and hides late results after 
 
 test('Email HTML cannot interpolate a recipient into its markup',()=>{
  const mail=activationEmail('<img src=x onerror=alert(1)>@example.invalid');assert.doesNotMatch(mail.html,/onerror|alert\(1\)/);
+});
+
+test('Mail accepts only the current reader origin and bounded JSON',async()=>{
+ const f=fixture(),auth={Authorization:'Bearer signed-admin'};
+ assert.equal((await f.run({user_id:uid},{...auth,Origin:'https://docriadhchaker.github.io'})).status,403);
+ assert.equal((await f.run({user_id:uid},{...auth,'Content-Type':'text/plain'})).status,415);
+ assert.equal((await f.run({user_id:uid,note:'é'.repeat(1200)},auth)).status,413);
+ assert.equal(f.calls.length,0);
 });

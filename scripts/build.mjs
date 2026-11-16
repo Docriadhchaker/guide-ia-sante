@@ -14,8 +14,18 @@ if(preview)config={title:config.title,preview:true};
 // Only these two generated child directories can ever be replaced.
 if(path.dirname(out)!==root||!['preview','dist'].includes(path.basename(out)))throw Error('Destination interdite');
 fs.rmSync(out,{recursive:true,force:true});fs.mkdirSync(out,{recursive:true});
-for(const dir of ['src','vendor'])fs.cpSync(path.join(root,dir),path.join(out,dir),{recursive:true});
-for(const file of ['index.html','icon.svg'])fs.copyFileSync(path.join(root,file),path.join(out,file));
+const publicFiles = [
+ 'icon.svg', 'src/style.css', 'vendor/marked.mjs', 'vendor/marked-LICENSE.md',
+ ...['api','app','content','access','access-mail','comments','inbox','pending','theme'].map(name=>'src/'+name+'.mjs')
+];
+for (const file of publicFiles) {
+ const destination = path.join(out,file);
+ fs.mkdirSync(path.dirname(destination),{recursive:true});
+ fs.copyFileSync(path.join(root,file),destination);
+}
+const page = fs.readFileSync(path.join(root,'index.html'),'utf8');
+const connections = config.supabaseUrl ? "connect-src 'self' "+new URL(config.supabaseUrl).origin+";" : "connect-src 'self';";
+fs.writeFileSync(path.join(out,'index.html'),page.replace("connect-src 'self';",connections));
 fs.writeFileSync(path.join(out,'config.json'),JSON.stringify(config,null,2));
 fs.writeFileSync(path.join(out,'.nojekyll'),'');
 fs.writeFileSync(path.join(out,'robots.txt'),'User-agent: *\nDisallow: /\n');

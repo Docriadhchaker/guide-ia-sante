@@ -87,6 +87,31 @@ export function safeLink(href, document, catalog) {
   return target ? route(target.id, resolveSection(target,fragment)) : null;
 }
 
+// Keep the live DOM on a small, inert Markdown vocabulary even if a parser changes its output.
+function filterReaderHTML(html) {
+  const page=globalThis.document;
+  if(!page?.createElement)return html; // Headless indexing does not insert a DOM.
+  const template=page.createElement('template');
+  template.innerHTML=html;
+  const tags=new Set('a b blockquote br code del div em h1 h2 h3 h4 h5 h6 hr i input li ol p pre s span strong table tbody td th thead tr ul'.split(' '));
+  const attrs={a:['href','target','rel','aria-label'],div:['role','tabindex','aria-label'],ol:['start'],th:['scope'],span:['title'],input:['type','disabled','checked']};
+  for(const el of template.content.querySelectorAll('*')) {
+    const tag=el.localName;
+    if(el.namespaceURI!=='http://www.w3.org/1999/xhtml'||!tags.has(tag)){el.replaceWith(page.createTextNode(el.textContent||''));continue;}
+    if(tag==='input' && el.getAttribute('type')!=='checkbox'){el.remove();continue;}
+    for(const attr of [...el.attributes]) {
+      if(attr.name!=='id'&&attr.name!=='class'&&!attrs[tag]?.includes(attr.name))el.removeAttribute(attr.name);
+    }
+    if(tag==='input')el.disabled=true;
+    if(tag==='a'){
+      const href=el.getAttribute('href')||'';
+      if(!href.startsWith('#/')&&!/^https?:\/\//i.test(href))el.removeAttribute('href');
+      if(el.hasAttribute('target')){el.target='_blank';el.rel='noopener noreferrer';}
+    }
+  }
+  return template.innerHTML;
+}
+
 export function renderMarkdown(document, catalog=[]) {
   const markdown = document.markdown || '', headings = headingsOf(markdown), warnings = new Set();
   let headingIndex=0, bibliography=false;
@@ -127,7 +152,7 @@ export function renderMarkdown(document, catalog=[]) {
     if(inLink||inCode)return piece;
     return piece.replace(/\[(\d+(?:\s*[,;–-]\s*\d+)*)\]/g,(all,nums)=>'['+nums.replace(/\d+/g,n=>usedRefs.has(n)?`<a class="citation" href="${route(document.id,'ref-'+n)}">${n}</a>`:n)+']');
   }).join('');
-  return {html, headings, warnings:[...warnings]};
+  return {html:filterReaderHTML(html), headings, warnings:[...warnings]};
 }
 
 export function searchDocuments(documents, query) {

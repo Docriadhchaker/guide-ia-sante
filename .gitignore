@@ -8,3 +8,11 @@ config.local.json
 node_modules/
 *.log
 /README*
+
+*.pem
+*.p12
+*.pfx
+*.key
+*.dump
+.pgpass
+supabase/.temp/

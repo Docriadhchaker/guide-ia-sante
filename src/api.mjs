@@ -2,7 +2,7 @@ export class SupabaseRepository {
   constructor(config) {this.url=config.supabaseUrl.replace(/\/$/,'');this.key=config.supabasePublishableKey;this.session=null;this.role=null;this.refreshing=null;}
   async request(path, {method='GET', body, auth=true, retry=true,timeoutMs=20000}={}) {
     if(auth) await this.ensureSession();
-    const response=await fetch(this.url+path,{method,cache:'no-store',signal:AbortSignal.timeout(timeoutMs),headers:{apikey:this.key,'Content-Type':'application/json',...(auth?{Authorization:'Bearer '+this.session.access_token}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});
+    const response=await fetch(this.url+path,{method,cache:'no-store',credentials:'omit',redirect:'error',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(timeoutMs),headers:{apikey:this.key,'Content-Type':'application/json',...(auth?{Authorization:'Bearer '+this.session.access_token}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});
     const text=await response.text(); let data; try{data=text?JSON.parse(text):null;}catch{throw Error('Réponse du serveur illisible.');}
     if(!response.ok){
       if(response.status===401&&auth&&retry){await this.refresh();return this.request(path,{method,body,auth,retry:false,timeoutMs});}
